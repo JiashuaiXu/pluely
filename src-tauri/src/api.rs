@@ -128,6 +128,25 @@ pub struct SystemPromptResponse {
     system_prompt: String,
 }
 
+// Pluely Prompts API
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct PluelyPrompt {
+    title: String,
+    prompt: String,
+    #[serde(rename = "modelId")]
+    model_id: String,
+    #[serde(rename = "modelName")]
+    model_name: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct PluelyPromptsResponse {
+    prompts: Vec<PluelyPrompt>,
+    total: i32,
+    #[serde(rename = "last_updated")]
+    last_updated: Option<String>,
+}
+
 // API Response Configuration Structs
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ApiResponseConfig {
@@ -912,6 +931,62 @@ pub async fn fetch_models() -> Result<Vec<Model>, String> {
         .map_err(|e| format!("Failed to parse models response: {}", e))?;
 
     Ok(models_response.models)
+}
+
+// Fetch Pluely Prompts API
+#[tauri::command]
+pub async fn fetch_prompts() -> Result<PluelyPromptsResponse, String> {
+    let app_endpoint = get_app_endpoint()?;
+    let api_access_key = get_api_access_key()?;
+
+    let client = reqwest::Client::new();
+    let url = format!("{}/api/prompts", app_endpoint);
+
+    let response = client
+        .post(&url)
+        .header("Content-Type", "application/json")
+        .header("Authorization", format!("Bearer {}", api_access_key))
+        .send()
+        .await
+        .map_err(|e| {
+            let error_msg = format!("{}", e);
+            if error_msg.contains("url (") {
+                let parts: Vec<&str> = error_msg.split(" for url (").collect();
+                if parts.len() > 1 {
+                    format!("Failed to make prompts request: {}", parts[0])
+                } else {
+                    format!("Failed to make prompts request: {}", error_msg)
+                }
+            } else {
+                format!("Failed to make prompts request: {}", error_msg)
+            }
+        })?;
+
+    // Check if the response is successful
+    if !response.status().is_success() {
+        let status = response.status();
+        let error_text = response
+            .text()
+            .await
+            .unwrap_or_else(|_| "Unknown server error".to_string());
+
+        if let Ok(error_json) = serde_json::from_str::<serde_json::Value>(&error_text) {
+            if let Some(error_msg) = error_json.get("error").and_then(|e| e.as_str()) {
+                return Err(format!("Server error ({}): {}", status, error_msg));
+            } else if let Some(message) = error_json.get("message").and_then(|m| m.as_str()) {
+                return Err(format!("Server error ({}): {}", status, message));
+            }
+        }
+
+        return Err(format!("Server error ({}): {}", status, error_text));
+    }
+
+    let prompts_response: PluelyPromptsResponse = response
+        .json()
+        .await
+        .map_err(|e| format!("Failed to parse prompts response: {}", e))?;
+
+    Ok(prompts_response)
 }
 
 // Create System Prompt API Command

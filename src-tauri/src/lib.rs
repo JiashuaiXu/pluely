@@ -100,6 +100,7 @@ pub fn run() {
             api::transcribe_audio,
             api::chat_stream_response,
             api::fetch_models,
+            api::fetch_prompts,
             api::create_system_prompt,
             api::check_license_status,
             api::get_activity,
